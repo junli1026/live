@@ -12,7 +12,11 @@ func init() {
 }
 
 func handleConnection(conn net.Conn) {
-	rtmp.HandShake(conn)
+	err := rtmp.HandShake(conn)
+	if err != nil {
+		//handle error
+	}
+	rtmp.ReadChunk(conn)
 }
 
 func main() {

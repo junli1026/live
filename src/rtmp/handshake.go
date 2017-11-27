@@ -16,7 +16,7 @@ const RTMP_SIG_SIZE = 1536
 func timeStamp() []byte {
 	t := time.Now().Unix()
 	b := make([]byte, 8)
-	binary.LittleEndian.PutUint64(b, uint64(t))
+	binary.BigEndian.PutUint64(b, uint64(t))
 	return b[4:]
 }
 
