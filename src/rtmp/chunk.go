@@ -9,7 +9,7 @@ import (
 const CHUNK_HEADER_MAX_SIZE = 18
 
 type Chunk struct {
-	Type          byte
+	Fmt           byte
 	ChunkStreamId uint32
 }
 
@@ -19,7 +19,7 @@ func readBasicHeader(reader *bufio.Reader, chunk *Chunk) error {
 		return err
 	}
 
-	chunk.Type = b >> 6
+	chunk.Fmt = b >> 6
 	streamId := uint32(b & 0x3F)
 
 	if streamId < 2 {
