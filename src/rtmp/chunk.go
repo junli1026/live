@@ -2,39 +2,55 @@ package rtmp
 
 import (
 	"bufio"
-	"encoding/binary"
-	"fmt"
+	"github.com/golang/glog"
 	"net"
 )
 
 const CHUNK_HEADER_MAX_SIZE = 18
 
 type Chunk struct {
-	Type     byte
-	StreamId uint32
+	Type          byte
+	ChunkStreamId uint32
+}
+
+func readBasicHeader(reader *bufio.Reader, chunk *Chunk) error {
+	b, err := reader.ReadByte()
+	if err != nil {
+		return err
+	}
+
+	chunk.Type = b >> 6
+	chunk.ChunkStreamId = uint32(b & 0x3F)
+
+	if chunk.ChunkStreamId < 2 {
+		b, err = reader.ReadByte()
+		chunk.ChunkStreamId += uint32(b) + 64
+	}
+	if chunk.ChunkStreamId == 1 {
+		b, err = reader.ReadByte()
+		chunk.ChunkStreamId += uint32(b) * 256
+	}
+	return err
+}
+
+func readMessageHeader(reader *bufio, chunk *Chunk) error {
+	//TODO
+	return nil
 }
 
 func ReadChunk(conn net.Conn) error {
-	fmt.Println("here")
 	reader := bufio.NewReader(conn)
+	chunk := &Chunk{}
+	var err error
 
-	buf := make([]byte, CHUNK_HEADER_MAX_SIZE, CHUNK_HEADER_MAX_SIZE)
-
-	n, _ := reader.Read(buf)
-	fmt.Println(n)
-
-	chunkType := buf[0] >> 6
-	fmt.Printf("type %d\n", chunkType)
-
-	var streamId uint32
-	streamId = buf[0] & 0x3F
-	fmt.Printf("stream %d\n", streamId)
-
-	if streamId < 2 {
-		streamId = buf[1] + 64
-	} else if streamId >= 64 {
-		streamId = 0
-		streamId = uint32(buf[1])<<8 | buf[2]
+	if err = readBasicHeader(reader, chunk); err != nil {
+		goto exit
 	}
-	return nil
+	if err = readMessageHeader(reader, chunk); err != nil {
+		goto exit
+	}
+
+exit:
+	glog.Error(err.Error())
+	return err
 }
