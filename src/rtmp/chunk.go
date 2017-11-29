@@ -20,16 +20,19 @@ func readBasicHeader(reader *bufio.Reader, chunk *Chunk) error {
 	}
 
 	chunk.Type = b >> 6
-	chunk.ChunkStreamId = uint32(b & 0x3F)
+	streamId := uint32(b & 0x3F)
 
-	if chunk.ChunkStreamId < 2 {
+	if streamId < 2 {
 		b, err = reader.ReadByte()
-		chunk.ChunkStreamId += uint32(b) + 64
+		chunk.ChunkStreamId = uint32(b) + 64
+		if streamId == 1 {
+			b, err = reader.ReadByte()
+			chunk.ChunkStreamId += uint32(b) * 256
+		}
+	} else {
+		chunk.ChunkStreamId = uint32(streamId)
 	}
-	if chunk.ChunkStreamId == 1 {
-		b, err = reader.ReadByte()
-		chunk.ChunkStreamId += uint32(b) * 256
-	}
+
 	return err
 }
 
@@ -46,9 +49,12 @@ func ReadChunk(conn net.Conn) error {
 	if err = readBasicHeader(reader, chunk); err != nil {
 		goto exit
 	}
+	glog.Info("Read Chunk Basic Header done")
+
 	if err = readMessageHeader(reader, chunk); err != nil {
 		goto exit
 	}
+	glog.Info("Read Chunk Message Header done")
 
 exit:
 	glog.Error(err.Error())
