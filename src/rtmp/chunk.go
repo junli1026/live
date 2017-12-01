@@ -37,8 +37,49 @@ func readBasicHeader(reader *bufio.Reader, chunk *Chunk) error {
 }
 
 func readMessageHeader(reader *bufio, chunk *Chunk) error {
-	//TODO
-	return nil
+	if chunk.Fmt == 0 {
+		//  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+		// |                   timestamp                   |message length |
+		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+		// |     message length (cont)     |message type id| msg stream id |
+		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+		// |           message stream id (cont)            |
+		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+	} else if chunk.Fmt == 1 {
+		//  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+		// |                timestamp delta                |message length |
+		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+		// |     message length (cont)     |message type id|
+		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+		_, err = ReadAtLeastFromNetwork(rbuf, tmpBuf[1:], 3)
+		if err != nil {
+			return
+		}
+		n += 3
+		header.Timestamp = binary.BigEndian.Uint32(tmpBuf)
+		_, err = ReadAtLeastFromNetwork(rbuf, tmpBuf[1:], 3)
+		if err != nil {
+			return
+		}
+		n += 3
+		header.MessageLength = binary.BigEndian.Uint32(tmpBuf)
+		b, err = ReadByteFromNetwork(rbuf)
+		if err != nil {
+			return
+		}
+		n += 1
+		header.MessageTypeID = uint8(b)
+	} else if chunk.Fmt == 2 {
+		//  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3
+		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+		// |                timestamp delta                |
+		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+	}
 }
 
 func ReadChunk(conn net.Conn) error {
