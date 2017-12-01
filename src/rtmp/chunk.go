@@ -20,31 +20,58 @@ type Chunk struct {
 	ExtendedTimestamp uint32
 }
 
-func readBasicHeader(reader *bufio.Reader, chunk *Chunk) error {
+func readBasicHeader(reader *bufio.Reader, chunk *Chunk) (int, error) {
+	var n int = 0
 	b, err := reader.ReadByte()
 	if err != nil {
-		return err
+		return n, err
 	}
+	n += 1
 
 	chunk.Fmt = b >> 6
 	streamId := uint32(b & 0x3F)
 
 	if streamId < 2 {
 		b, err = reader.ReadByte()
+		if err != nil {
+			n += 1
+		}
 		chunk.ChunkStreamId = uint32(b) + 64
 		if streamId == 1 {
 			b, err = reader.ReadByte()
+			if err != nil {
+				n += 1
+			}
 			chunk.ChunkStreamId += uint32(b) * 256
 		}
 	} else {
 		chunk.ChunkStreamId = uint32(streamId)
 	}
 
-	return err
+	return n, err
 }
 
-func readMessageHeader(reader *bufio.Reader, chunk *Chunk) error {
-	var err error
+func readUint32(bytes []byte) uint32 {
+	l := len(bytes)
+	if l >= 4 {
+		return binary.BigEndian.Uint32(bytes[0:4])
+	} else {
+		padding := make([]byte, 4-l, 4)
+		return binary.BigEndian.Uint32(append(padding, bytes...))
+	}
+}
+
+func dumpChunk(chunk *Chunk) string {
+	return fmt.Sprintf("Chunk data: \n \tFmt: %d\n \tChunkStreamId: %d\n \tTimeStamp: %d\n \tMessageLength: %d\n \tMessageTypeId: %d\n \tMessageStreamId: %d\n \tExtendedTimestamp: %d\n",
+		chunk.Fmt, chunk.ChunkStreamId, chunk.TimeStamp,
+		chunk.MessageLength, chunk.MessageTypeId, chunk.MessageStreamId,
+		chunk.ExtendedTimestamp)
+}
+
+func readMessageHeader(reader *bufio.Reader, chunk *Chunk) (int, error) {
+	var err error = nil
+	var n int = 0
+
 	if chunk.Fmt == 0 {
 		//  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -55,16 +82,14 @@ func readMessageHeader(reader *bufio.Reader, chunk *Chunk) error {
 		// |           message stream id (cont)            |
 		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 		buf := make([]byte, 11, 11)
-		_, err = reader.Read(buf)
+		n, err = reader.Read(buf)
 		if err != nil {
-			return err
+			return n, err
 		}
-		chunk.TimeStamp = binary.BigEndian.Uint32(buf[0:3])
-		chunk.MessageLength = binary.BigEndian.Uint32(buf[3:6])
+		chunk.TimeStamp = readUint32(buf[0:3])
+		chunk.MessageLength = readUint32(buf[3:6])
 		chunk.MessageTypeId = buf[6:7][0]
-		chunk.MessageStreamId = binary.BigEndian.Uint32(buf[7:11])
-		glog.Info("Read message header type 0 done")
-
+		chunk.MessageStreamId = readUint32(buf[7:11])
 	} else if chunk.Fmt == 1 {
 		//  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -73,12 +98,12 @@ func readMessageHeader(reader *bufio.Reader, chunk *Chunk) error {
 		// |     message length (cont)     |message type id|
 		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 		buf := make([]byte, 7, 7)
-		_, err = reader.Read(buf)
+		n, err = reader.Read(buf)
 		if err != nil {
-			return err
+			return n, err
 		}
-		chunk.TimeStamp = binary.BigEndian.Uint32(buf[0:3])
-		chunk.MessageLength = binary.BigEndian.Uint32(buf[3:6])
+		chunk.TimeStamp = readUint32(buf[0:3])
+		chunk.MessageLength = readUint32(buf[3:6])
 		chunk.MessageTypeId = buf[6:7][0]
 		glog.Info("Read message header type 1 done")
 	} else if chunk.Fmt == 2 {
@@ -87,12 +112,11 @@ func readMessageHeader(reader *bufio.Reader, chunk *Chunk) error {
 		// |                timestamp delta                |
 		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 		buf := make([]byte, 3, 3)
-		_, err = reader.Read(buf)
+		n, err = reader.Read(buf)
 		if err != nil {
-			return err
+			return n, err
 		}
-		chunk.TimeStamp = binary.BigEndian.Uint32(buf)
-		glog.Info("Read message header type 2 done")
+		chunk.TimeStamp = readUint32(buf)
 	}
 
 	// The Extended Timestamp field is used to encode timestamps or
@@ -112,31 +136,43 @@ func readMessageHeader(reader *bufio.Reader, chunk *Chunk) error {
 	//    an extended timestamp field."
 	if chunk.Fmt != 3 && chunk.TimeStamp >= 0xFFFFFF {
 		buf := make([]byte, 4, 4)
-		_, err = reader.Read(buf)
+		var c int
+		c, err = reader.Read(buf)
 		if err != nil {
-			return err
+			return n, err
 		}
-		chunk.ExtendedTimestamp = binary.BigEndian.Uint32(buf)
-		glog.Info(fmt.Sprintf("Read extented timestamp: %v", chunk.ExtendedTimestamp))
+		n += c
+		chunk.ExtendedTimestamp = readUint32(buf)
 	}
-	return nil
+	fmt.Println(dumpChunk(chunk))
+	glog.Info(dumpChunk(chunk))
+	return n, nil
 }
 
 func ReadChunk(conn net.Conn) error {
 	reader := bufio.NewReader(conn)
+	buf := make([]byte, 1024)
 	chunk := &Chunk{}
-	var err error
+	var err error = nil
+	var n, c int = 0, 0
 
-	if err = readBasicHeader(reader, chunk); err != nil {
+	if c, err = readBasicHeader(reader, chunk); err != nil {
 		goto exit
 	}
+	n += c
 	glog.Info("Read Chunk Basic Header done")
 
-	if err = readMessageHeader(reader, chunk); err != nil {
+	if c, err = readMessageHeader(reader, chunk); err != nil {
 		goto exit
 	}
+	n += c
 	glog.Info("Read Chunk Message Header done")
 
+	fmt.Println(n)
+	c, err = reader.Read(buf)
+	fmt.Println(c)
+
+	return nil
 exit:
 	glog.Error(err.Error())
 	return err
