@@ -3,6 +3,7 @@ package rtmp
 import (
 	"bufio"
 	"encoding/binary"
+	"fmt"
 	"github.com/golang/glog"
 	"net"
 )
@@ -62,6 +63,8 @@ func readMessageHeader(reader *bufio.Reader, chunk *Chunk) error {
 		chunk.MessageLength = binary.BigEndian.Uint32(buf[3:6])
 		chunk.MessageTypeId = buf[6:7][0]
 		chunk.MessageStreamId = binary.BigEndian.Uint32(buf[7:11])
+		glog.Info("Read message header type 0 done")
+
 	} else if chunk.Fmt == 1 {
 		//  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -77,6 +80,7 @@ func readMessageHeader(reader *bufio.Reader, chunk *Chunk) error {
 		chunk.TimeStamp = binary.BigEndian.Uint32(buf[0:3])
 		chunk.MessageLength = binary.BigEndian.Uint32(buf[3:6])
 		chunk.MessageTypeId = buf[6:7][0]
+		glog.Info("Read message header type 1 done")
 	} else if chunk.Fmt == 2 {
 		//  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3
 		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -88,6 +92,7 @@ func readMessageHeader(reader *bufio.Reader, chunk *Chunk) error {
 			return err
 		}
 		chunk.TimeStamp = binary.BigEndian.Uint32(buf)
+		glog.Info("Read message header type 2 done")
 	}
 
 	// The Extended Timestamp field is used to encode timestamps or
@@ -112,6 +117,7 @@ func readMessageHeader(reader *bufio.Reader, chunk *Chunk) error {
 			return err
 		}
 		chunk.ExtendedTimestamp = binary.BigEndian.Uint32(buf)
+		glog.Info(fmt.Sprintf("Read extented timestamp: %v", chunk.ExtendedTimestamp))
 	}
 	return nil
 }
