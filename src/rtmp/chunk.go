@@ -2,6 +2,7 @@ package rtmp
 
 import (
 	"bufio"
+	"encoding/binary"
 	"github.com/golang/glog"
 	"net"
 )
@@ -9,8 +10,13 @@ import (
 const CHUNK_HEADER_MAX_SIZE = 18
 
 type Chunk struct {
-	Fmt           byte
-	ChunkStreamId uint32
+	Fmt               byte
+	ChunkStreamId     uint32
+	TimeStamp         uint32
+	MessageLength     uint32
+	MessageTypeId     byte
+	MessageStreamId   uint32
+	ExtendedTimestamp uint32
 }
 
 func readBasicHeader(reader *bufio.Reader, chunk *Chunk) error {
@@ -36,7 +42,8 @@ func readBasicHeader(reader *bufio.Reader, chunk *Chunk) error {
 	return err
 }
 
-func readMessageHeader(reader *bufio, chunk *Chunk) error {
+func readMessageHeader(reader *bufio.Reader, chunk *Chunk) error {
+	var err error
 	if chunk.Fmt == 0 {
 		//  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -46,7 +53,15 @@ func readMessageHeader(reader *bufio, chunk *Chunk) error {
 		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 		// |           message stream id (cont)            |
 		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-
+		buf := make([]byte, 11, 11)
+		_, err = reader.Read(buf)
+		if err != nil {
+			return err
+		}
+		chunk.TimeStamp = binary.BigEndian.Uint32(buf[0:3])
+		chunk.MessageLength = binary.BigEndian.Uint32(buf[3:6])
+		chunk.MessageTypeId = buf[6:7][0]
+		chunk.MessageStreamId = binary.BigEndian.Uint32(buf[7:11])
 	} else if chunk.Fmt == 1 {
 		//  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -54,32 +69,51 @@ func readMessageHeader(reader *bufio, chunk *Chunk) error {
 		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 		// |     message length (cont)     |message type id|
 		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-
-		_, err = ReadAtLeastFromNetwork(rbuf, tmpBuf[1:], 3)
+		buf := make([]byte, 7, 7)
+		_, err = reader.Read(buf)
 		if err != nil {
-			return
+			return err
 		}
-		n += 3
-		header.Timestamp = binary.BigEndian.Uint32(tmpBuf)
-		_, err = ReadAtLeastFromNetwork(rbuf, tmpBuf[1:], 3)
-		if err != nil {
-			return
-		}
-		n += 3
-		header.MessageLength = binary.BigEndian.Uint32(tmpBuf)
-		b, err = ReadByteFromNetwork(rbuf)
-		if err != nil {
-			return
-		}
-		n += 1
-		header.MessageTypeID = uint8(b)
+		chunk.TimeStamp = binary.BigEndian.Uint32(buf[0:3])
+		chunk.MessageLength = binary.BigEndian.Uint32(buf[3:6])
+		chunk.MessageTypeId = buf[6:7][0]
 	} else if chunk.Fmt == 2 {
 		//  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3
 		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 		// |                timestamp delta                |
 		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-
+		buf := make([]byte, 3, 3)
+		_, err = reader.Read(buf)
+		if err != nil {
+			return err
+		}
+		chunk.TimeStamp = binary.BigEndian.Uint32(buf)
 	}
+
+	// The Extended Timestamp field is used to encode timestamps or
+	// timestamp deltas that are greater than 16777215 (0xFFFFFF); that is,
+	// for timestamps or timestamp deltas that don’t fit in the 24 bit
+	// fields of Type 0, 1, or 2 chunks. This field encodes the complete
+	// 32-bit timestamp or timestamp delta. The presence of this field is
+	// indicated by setting the timestamp field of a Type 0 chunk, or the
+	// timestamp delta field of a Type 1 or 2 chunk, to 16777215 (0xFFFFFF).
+	// This field is present in Type 3 chunks when the most recent Type 0,
+	// 1, or 2 chunk for the same chunk stream ID indicated the presence of
+	// an extended timestamp field.
+
+	// TODO: handle the following case:
+	//    "This field is present in Type 3 chunks when the most recent Type 0,
+	//    1, or 2 chunk for the same chunk stream ID indicated the presence of
+	//    an extended timestamp field."
+	if chunk.Fmt != 3 && chunk.TimeStamp >= 0xFFFFFF {
+		buf := make([]byte, 4, 4)
+		_, err = reader.Read(buf)
+		if err != nil {
+			return err
+		}
+		chunk.ExtendedTimestamp = binary.BigEndian.Uint32(buf)
+	}
+	return nil
 }
 
 func ReadChunk(conn net.Conn) error {
