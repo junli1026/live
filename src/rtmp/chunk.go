@@ -180,7 +180,7 @@ func ReadChunk(conn net.Conn) error {
 
 	fmt.Println(fmt.Sprintf("chunk data size: %v", chunkSize))
 
-	c, err = reader.Read(buf[0 : chunkSize-uint32(n)])
+	c, err = reader.Read(buf[0:chunkSize])
 	fmt.Println(c)
 
 	return nil
