@@ -8,7 +8,7 @@ import (
 	"net"
 )
 
-const CHUNK_HEADER_MAX_SIZE = 18
+const DEFAULT_CHUNK_SIZE = 128
 
 type Chunk struct {
 	Fmt               byte
@@ -153,23 +153,34 @@ func ReadChunk(conn net.Conn) error {
 	reader := bufio.NewReader(conn)
 	buf := make([]byte, 1024)
 	chunk := &Chunk{}
+	var chunkSize uint32 = DEFAULT_CHUNK_SIZE
 	var err error = nil
 	var n, c int = 0, 0
 
+	// read basic header
 	if c, err = readBasicHeader(reader, chunk); err != nil {
 		goto exit
 	}
 	n += c
 	glog.Info("Read Chunk Basic Header done")
 
+	// read message header
 	if c, err = readMessageHeader(reader, chunk); err != nil {
 		goto exit
 	}
 	n += c
 	glog.Info("Read Chunk Message Header done")
 
-	fmt.Println(n)
-	c, err = reader.Read(buf)
+	fmt.Println(fmt.Sprintf("chunk header size: %v", n))
+
+	// read chunk data
+	if chunk.MessageLength < chunkSize {
+		chunkSize = chunk.MessageLength
+	}
+
+	fmt.Println(fmt.Sprintf("chunk data size: %v", chunkSize))
+
+	c, err = reader.Read(buf[0 : chunkSize-uint32(n)])
 	fmt.Println(c)
 
 	return nil
