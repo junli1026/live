@@ -16,7 +16,9 @@ func handleConnection(conn net.Conn) {
 	if err != nil {
 		//handle error
 	}
-	rtmp.ReadChunk(conn)
+	for {
+		rtmp.ReadChunk(conn)
+	}
 }
 
 func main() {
