@@ -1,6 +1,5 @@
 package rtmp
 
 type Command struct {
-	Name          string
-	TransactionID uint32
+	Name string
 }
